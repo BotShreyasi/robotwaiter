@@ -1,0 +1,2 @@
+export const AZURE_SPEECH_KEY = "FHKK4xC5rrPgkn7OrNzGdG98mUAOBdHsSLQxBS2xsLjijvm7SuSMJQQJ99BEACGhslBXJ3w3AAAYACOGzQ23";
+export const AZURE_SPEECH_REGION = "centralindia";
