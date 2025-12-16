@@ -1,7 +1,7 @@
 // src/screens/RobotControlScreen.tsx
 
 import React, { useState, useEffect } from 'react';
-import { View, Text, Image, TouchableOpacity, Modal, Dimensions, Linking, ScrollView } from 'react-native';
+import { View, Text, Image, TouchableOpacity, Modal, Dimensions, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Orientation, {
   LANDSCAPE_LEFT,
@@ -169,9 +169,7 @@ export default function RobotControlScreen() {
         lastControlRef.current = control;
         lastDishMappingRef.current = dish_mapping;
 
-        await speak(response, (control as any).language || 'hi-IN');
-
-        // Extract and show emojis from bot response AFTER TTS finishes
+        // Extract and show emojis from bot response
         if (FEATURE_FLAGS.SHOW_EMOJI_POPUP) {
           const emojis = extractEmojis(response);
           if (emojis) {
@@ -182,9 +180,11 @@ export default function RobotControlScreen() {
             }
             emojiPopupTimeoutRef.current = setTimeout(() => {
               setShowEmojiPopup(false);
-            }, 2500); // Show for 2.5 seconds after speech finishes
+            }, 3000); // Show for 3 seconds
           }
         }
+
+        await speak(response, (control as any).language || 'hi-IN');
 
         // 1. Order Confirmation and Payment Flow
         const orderMap: OrderMap = (control as any).order || {};
@@ -857,7 +857,7 @@ export default function RobotControlScreen() {
             />
           </View>
         ) : (
-          <View style={[styles.buttonSection, { flex: 1, display: 'flex', flexDirection: 'column' }]}>
+          <View style={styles.buttonSection}>
             <TouchableOpacity
               style={[styles.button, isLandscape && styles.buttonLandscape, isTablet && styles.buttonTablet]}
               onPress={isTalking ? handleEndTalking : handleStartTalking}
@@ -866,15 +866,103 @@ export default function RobotControlScreen() {
                 {isTalking ? 'End Talking' : 'Start Talking'}
               </Text>
             </TouchableOpacity>
-            <View style={{ marginTop: 16, marginBottom: 12 }}>
+            <View style={{ marginTop: 16 }}>
               <Text style={[styles.buttonText, { textAlign: 'center' }]}>
                 {recognizing ? '🎙️ Listening' : '🎤 Stopped'}
               </Text>
             </View>
 
-            {/* STT Text Display - Your Voice Section */}
+            {/* Robot Status Display */}
+            {currentStatus && FEATURE_FLAGS.SHOW_ROBOT_STATUS && (
+              <View style={{ marginTop: 16, padding: 11, backgroundColor: 'rgba(34,197,94,0.12)', borderRadius: 7, borderLeftWidth: 3, borderLeftColor: '#22c55e' }}>
+                <Text style={{ color: '#86efac', fontSize: 11, marginBottom: 6, fontWeight: '600' }}>
+                  ● Robot Status
+                </Text>
+                <Text style={{ color: '#d1fae5', fontSize: 9, marginBottom: 3 }}>
+                  📍 Table: <Text style={{ fontWeight: '500' }}>{currentStatus.current_table}</Text>
+                </Text>
+                <Text style={{ 
+                  color: currentStatus.movement_status === 'stopped' ? '#86efac' : '#fbbf24', 
+                  fontSize: 9, 
+                  marginBottom: 3 
+                }}>
+                  🚀 Movement: <Text style={{ fontWeight: '500' }}>{currentStatus.movement_status}</Text>
+                </Text>
+                <Text style={{ 
+                  color: currentStatus.waiting_at_table ? '#86efac' : '#fca5a5', 
+                  fontSize: 9, 
+                  marginBottom: 3 
+                }}>
+                  ⏳ Waiting: <Text style={{ fontWeight: '500' }}>{currentStatus.waiting_at_table ? 'Yes ✓' : 'No'}</Text>
+                </Text>
+                <Text style={{ 
+                  color: currentStatus.navigation_status === 'success' ? '#86efac' : '#fca5a5', 
+                  fontSize: 9, 
+                  marginBottom: 3 
+                }}>
+                  🗺️ Nav: <Text style={{ fontWeight: '500' }}>{currentStatus.navigation_status}</Text>
+                </Text>
+                <Text style={{ 
+                  color: currentStatus.is_stt_active ? '#fbbf24' : '#9ca3af', 
+                  fontSize: 9 
+                }}>
+                  🎤 STT: <Text style={{ fontWeight: '500' }}>{currentStatus.is_stt_active ? 'Active' : 'Inactive'}</Text>
+                </Text>
+              </View>
+            )}
+
+            {/* Robot Navigation Display */}
+            {currentStatus && FEATURE_FLAGS.SHOW_ROBOT_NAVIGATION && (
+              <View style={{ marginTop: 12, padding: 11, backgroundColor: 'rgba(59,130,246,0.12)', borderRadius: 7, borderLeftWidth: 3, borderLeftColor: '#3b82f6' }}>
+                <Text style={{ color: '#93c5fd', fontSize: 11, marginBottom: 6, fontWeight: '600' }}>
+                  ◆ Navigation
+                </Text>
+                {currentStatus.target_table ? (
+                  <>
+                    <Text style={{ color: '#dbeafe', fontSize: 9, marginBottom: 2 }}>
+                      🎯 Target: <Text style={{ fontWeight: '500' }}>{currentStatus.target_table}</Text>
+                    </Text>
+                    {currentStatus.target_distance !== null && (
+                      <Text style={{ color: '#dbeafe', fontSize: 9, marginBottom: 3 }}>
+                        📏 Distance: <Text style={{ fontWeight: '500' }}>{currentStatus.target_distance.toFixed(2)}m</Text>
+                      </Text>
+                    )}
+                  </>
+                ) : (
+                  <Text style={{ color: '#93c5fd', fontSize: 9 }}>
+                    ⊘ No active navigation
+                  </Text>
+                )}
+                <Text style={{ 
+                  color: currentStatus.navigation_status === 'failed' ? '#fca5a5' : 
+                         currentStatus.navigation_status === 'success' ? '#86efac' : '#fbbf24',
+                  fontSize: 8.5, 
+                  marginTop: 3,
+                  fontStyle: 'italic'
+                }}>
+                  {currentStatus.goal_status_text}
+                </Text>
+              </View>
+            )}
+
+            {/* Robot Pose Display */}
+            {currentStatus && FEATURE_FLAGS.SHOW_ROBOT_POSE && currentStatus.current_pose && (
+              <View style={{ marginTop: 12, padding: 11, backgroundColor: 'rgba(168,85,247,0.12)', borderRadius: 7, borderLeftWidth: 3, borderLeftColor: '#a855f7' }}>
+                <Text style={{ color: '#d8b4fe', fontSize: 11, marginBottom: 5, fontWeight: '600' }}>
+                  ◆ Position
+                </Text>
+                <Text style={{ color: '#ede9fe', fontSize: 8.5, marginBottom: 1.5 }}>
+                  X: {currentStatus.current_pose.position.x.toFixed(2)} | Y: {currentStatus.current_pose.position.y.toFixed(2)}
+                </Text>
+                <Text style={{ color: '#ede9fe', fontSize: 8.5 }}>
+                  Yaw: {currentStatus.current_pose.yaw.toFixed(2)} rad
+                </Text>
+              </View>
+            )}
+
+            {/* STT Text Display */}
             {isTalking && (FEATURE_FLAGS.SHOW_STT_FULL_TEXT || FEATURE_FLAGS.SHOW_STT_PARTIAL_TEXT) && (
-              <View style={{ marginBottom: 10, padding: 11, backgroundColor: 'rgba(100,150,200,0.15)', borderRadius: 7, borderLeftWidth: 3, borderLeftColor: '#60a5fa' }}>
+              <View style={{ marginTop: 12, padding: 11, backgroundColor: 'rgba(100,150,200,0.15)', borderRadius: 7, borderLeftWidth: 3, borderLeftColor: '#60a5fa' }}>
                 <Text style={{ color: '#60a5fa', fontSize: 11, marginBottom: 6, fontWeight: '600' }}>
                   🎤 Your Voice
                 </Text>
@@ -917,11 +1005,7 @@ export default function RobotControlScreen() {
 
         <View style={styles.contentWrapper}>
           {showPayment && (qrHtml || paymentData?.bill_html || paymentData?.upi_string) ? (
-            <ScrollView 
-              style={{ flex: 1, width: '100%' }}
-              showsVerticalScrollIndicator={true}
-              contentContainerStyle={{ alignItems: 'center', paddingVertical: 10 }}
-            >
+            <View style={{ width: '100%', alignItems: 'center' }}>
               <WebView
                 originWhitelist={['*']}
                 source={{
@@ -935,8 +1019,7 @@ export default function RobotControlScreen() {
                 domStorageEnabled={true}
                 mixedContentMode={'always'}
                 startInLoadingState={true}
-                scrollEnabled={false}
-                style={{ width: '90%', height: 500 }}
+                style={[styles.mainLogo, isLandscape && styles.mainLogoLandscape, isTablet && styles.mainLogoTablet]}
                 onMessage={(event) => {
                   try {
                     const data = JSON.parse(event.nativeEvent.data);
@@ -954,7 +1037,7 @@ export default function RobotControlScreen() {
                   console.error('[WebView] error: ', nativeEvent);
                 }}
               />
-            </ScrollView>
+            </View>
           ) : (
             <Image
               source={require('../assets/the-robot-restaurant.jpeg')}
@@ -963,165 +1046,31 @@ export default function RobotControlScreen() {
             />
           )}
 
-          <View style={[styles.middlePanel, { flex: 1 }]}>
-            <ScrollView
-              showsVerticalScrollIndicator={true}
-              scrollEnabled={true}
-              nestedScrollEnabled={true}
-            >
-              <CartDisplay
-                cart={cart}
-                paymentData={paymentData}
-                increaseQuantity={increaseQuantity}
-                decreaseQuantity={decreaseQuantity}
-                onDeleteItem={(item) => {
-                  setItemToDelete(item);
-                  setShowConfirmDelete(true);
-                }}
-                isTalking={isTalking}
-              />
-            </ScrollView>
+          <View style={styles.middlePanel}>
+            <CartDisplay
+              cart={cart}
+              paymentData={paymentData}
+              increaseQuantity={increaseQuantity}
+              decreaseQuantity={decreaseQuantity}
+              onDeleteItem={(item) => {
+                setItemToDelete(item);
+                setShowConfirmDelete(true);
+              }}
+              isTalking={isTalking}
+            />
           </View>
 
-          {/* Main Panel Footer - Status, Navigation, Position, Voice */}
-          <View style={{
-            backgroundColor: 'rgba(10,10,20,0.8)',
-            borderTopWidth: 1,
-            borderTopColor: 'rgba(255,255,255,0.15)',
-            padding: 10,
-            minHeight: 80,
-          }}>
-            <ScrollView 
-              horizontal={true}
-              showsHorizontalScrollIndicator={false}
-              scrollEnabled={true}
-              contentContainerStyle={{ paddingHorizontal: 8 }}
-            >
-              {/* Status Mini Card */}
-              {currentStatus && FEATURE_FLAGS.SHOW_ROBOT_STATUS && (
-                <View style={{ 
-                  marginRight: 12, 
-                  padding: 9, 
-                  backgroundColor: 'rgba(34,197,94,0.15)', 
-                  borderRadius: 6, 
-                  borderLeftWidth: 2, 
-                  borderLeftColor: '#22c55e',
-                  minWidth: 140
-                }}>
-                  <Text style={{ color: '#86efac', fontSize: 9, fontWeight: '600', marginBottom: 4 }}>
-                    ● Status
-                  </Text>
-                  <Text style={{ color: '#d1fae5', fontSize: 8, marginBottom: 2 }}>
-                    📍 {currentStatus.current_table}
-                  </Text>
-                  <Text style={{ 
-                    color: currentStatus.movement_status === 'stopped' ? '#86efac' : '#fbbf24', 
-                    fontSize: 8 
-                  }}>
-                    🚀 {currentStatus.movement_status}
-                  </Text>
-                </View>
-              )}
-
-              {/* Navigation Mini Card */}
-              {currentStatus && FEATURE_FLAGS.SHOW_ROBOT_NAVIGATION && (
-                <View style={{ 
-                  marginRight: 12, 
-                  padding: 9, 
-                  backgroundColor: 'rgba(59,130,246,0.15)', 
-                  borderRadius: 6, 
-                  borderLeftWidth: 2, 
-                  borderLeftColor: '#3b82f6',
-                  minWidth: 140
-                }}>
-                  <Text style={{ color: '#93c5fd', fontSize: 9, fontWeight: '600', marginBottom: 4 }}>
-                    ◆ Navigation
-                  </Text>
-                  {currentStatus.target_table ? (
-                    <>
-                      <Text style={{ color: '#dbeafe', fontSize: 8, marginBottom: 2 }}>
-                        🎯 {currentStatus.target_table}
-                      </Text>
-                      {currentStatus.target_distance !== null && (
-                        <Text style={{ color: '#dbeafe', fontSize: 8 }}>
-                          📏 {currentStatus.target_distance.toFixed(2)}m
-                        </Text>
-                      )}
-                    </>
-                  ) : (
-                    <Text style={{ color: '#93c5fd', fontSize: 8 }}>
-                      No navigation
-                    </Text>
-                  )}
-                </View>
-              )}
-
-              {/* Position Mini Card */}
-              {currentStatus && FEATURE_FLAGS.SHOW_ROBOT_POSE && currentStatus.current_pose && (
-                <View style={{ 
-                  marginRight: 12, 
-                  padding: 9, 
-                  backgroundColor: 'rgba(168,85,247,0.15)', 
-                  borderRadius: 6, 
-                  borderLeftWidth: 2, 
-                  borderLeftColor: '#a855f7',
-                  minWidth: 140
-                }}>
-                  <Text style={{ color: '#d8b4fe', fontSize: 9, fontWeight: '600', marginBottom: 4 }}>
-                    ◆ Position
-                  </Text>
-                  <Text style={{ color: '#ede9fe', fontSize: 8, marginBottom: 2 }}>
-                    X: {currentStatus.current_pose.position.x.toFixed(1)}
-                  </Text>
-                  <Text style={{ color: '#ede9fe', fontSize: 8 }}>
-                    Y: {currentStatus.current_pose.position.y.toFixed(1)}
-                  </Text>
-                </View>
-              )}
-            </ScrollView>
-          </View>
-
-          {/* Bottom Row - Hidden if using footer */}
-          {!FEATURE_FLAGS.DINING_EXPERIENCE_AS_FOOTER && (
-            <View style={[styles.bottomRow, isLandscape && styles.bottomRowLandscape, isTablet && styles.bottomRowTablet]}>
-              <Image
-                source={require('../assets/the-robot-restaurant.jpeg')}
-                style={[styles.icon, isLandscape && styles.iconLandscape, isTablet && styles.iconTablet]}
-                resizeMode="contain"
-              />
-              <Text style={[styles.experienceText, isLandscape && styles.experienceTextLandscape, isTablet && styles.experienceTextTablet]}>
-                Dining Experience
-              </Text>
-            </View>
-          )}
-        </View>
-
-        {/* --- Fixed Footer (Dining Experience) --- */}
-        {FEATURE_FLAGS.DINING_EXPERIENCE_AS_FOOTER && (
-          <View style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: 60,
-            backgroundColor: 'rgba(20,20,40,0.95)',
-            borderTopWidth: 1,
-            borderTopColor: 'rgba(255,255,255,0.1)',
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'center',
-            paddingHorizontal: 15,
-          }}>
+          <View style={[styles.bottomRow, isLandscape && styles.bottomRowLandscape, isTablet && styles.bottomRowTablet]}>
             <Image
               source={require('../assets/the-robot-restaurant.jpeg')}
-              style={{ width: 40, height: 40, marginRight: 12, borderRadius: 4 }}
+              style={[styles.icon, isLandscape && styles.iconLandscape, isTablet && styles.iconTablet]}
               resizeMode="contain"
             />
-            <Text style={{ color: '#a0aec0', fontSize: 13, fontWeight: '500' }}>
-              🍽️ Dining Experience
+            <Text style={[styles.experienceText, isLandscape && styles.experienceTextLandscape, isTablet && styles.experienceTextTablet]}>
+              Dining Experience
             </Text>
           </View>
-        )}
+        </View>
       </LinearGradient>
     </View>
   );
