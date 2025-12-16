@@ -1,8 +1,21 @@
 // src/api/OrderApi.ts
 
 import { PaymentData, OrderMap } from '../types';
+import { ROBOSERVER_IP } from '../config/Config';
 
-const ROBOSERVER_IP = '98.70.32.248:5050'; //'74.225.236.63:5050'; // या roboserverip वेरिएबल से लें
+export async function matchMenuApi(order: OrderMap): Promise<any> {
+    const res = await fetch(`http://${ROBOSERVER_IP}/chatbot/match_menu`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order }),
+    });
+
+    if (!res.ok) {
+        throw new Error(`Match menu API failed: ${res.status}`);
+    }
+
+    return res.json();
+}
 
 // Helper function to format item names (from your component)
 const formatItemName = (str: string) => {

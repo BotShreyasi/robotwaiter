@@ -1,13 +1,7 @@
 // src/services/api.ts
 // RAGFlow + roboserver APIs (TS version of robotui/services/api.js)
 
-const RAGFLOW_BASE_URL = 'https://flow.botshreyasi.com';
-const RAGFLOW_ACCESS_TOKEN = 'M4ZWJhYTE2ODU5NDExZjBiNTVjMDI0Mm';
-const RAGFLOW_BOT_ID = 'ac55c0ce99fb11f0b0650242ac180006';
-const RAZORPAY_KEY_ID = 'rzp_live_kfVvUd252jkHso';
-
-// roboserver (same as RobotControlScreen)
-export const ROBOSERVER_IP = '98.70.32.248:5050';
+import { RAGFLOW_BASE_URL, RAGFLOW_ACCESS_TOKEN, RAGFLOW_BOT_ID, RAZORPAY_KEY_ID } from '../config/Config';
 
 const headers: Record<string, string> = {
   'Content-Type': 'application/json',

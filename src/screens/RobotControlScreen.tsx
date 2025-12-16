@@ -1,7 +1,7 @@
 // src/screens/RobotControlScreen.tsx
 
 import React, { useState, useEffect } from 'react';
-import { View, Text, Image, TouchableOpacity, Modal, Dimensions, Linking } from 'react-native';
+import { View, Text, Image, TouchableOpacity, Modal, Dimensions, Linking, ScrollView } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Orientation, {
   LANDSCAPE_LEFT,
@@ -28,7 +28,10 @@ import {
   fetchPosesApi, navigateToPoseApi, fetchTablesApi,
   navigateToTableApi
 } from '../api/RobotApi';
-import { saveOrderApi, startPaymentApi, paymentSuccessApi, generateQRHtml } from '../api/OrderApi';
+import { saveOrderApi, startPaymentApi, paymentSuccessApi, generateQRHtml, matchMenuApi } from '../api/OrderApi';
+
+// Config Imports
+import { FEATURE_FLAGS } from '../config/Config';
 
 // Types Import
 import { CartItem, PaymentData, RobotStatus, Pose, Table, OrderMap } from '../types';
@@ -38,6 +41,13 @@ const isTablet = width >= 600;
 
 // The final menu URL (can be externalized to a config file)
 const FINAL_MENU_URL = 'https://dinein.petpooja.com/qr/c2kj7v4m/D6';
+
+// Utility function to extract emojis from text
+const extractEmojis = (text: string): string => {
+  const emojiRegex = /(\u00d83c\u00de00-\u00d83c\u00de9f)|(\u00d83d\u00de00-\u00d83d\u00deff)|(\u00d83e\u00de00-\u00d83e\u00deff)|[\u2600-\u27BF]|[\u2300-\u23FF]|[\u2000-\u206F]|[\u2700-\u27BF]|[\u{1F000}-\u{1F9FF}]/gu;
+  const emojis = text.match(emojiRegex);
+  return emojis ? emojis.join(' ') : '';
+};
 
 type OrientationString =
   | 'PORTRAIT'
@@ -61,6 +71,12 @@ export default function RobotControlScreen() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const sessionIdRef = React.useRef<string | null>(null);
   const [prevData, setPrevData] = useState<RobotStatus | null>(null);
+  const [currentStatus, setCurrentStatus] = useState<RobotStatus | null>(null);
+  const [sttFullText, setSttFullText] = useState<string>('');
+  const [sttPartialText, setSttPartialText] = useState<string>('');
+  const [showEmojiPopup, setShowEmojiPopup] = useState(false);
+  const [displayEmojis, setDisplayEmojis] = useState<string>('');
+  const emojiPopupTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
   const silenceFallbackCount = React.useRef(0);
   const isSilenceHandling = React.useRef(false);
 
@@ -83,6 +99,25 @@ export default function RobotControlScreen() {
   const [isBillVisible, setIsBillVisible] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const paymentTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+  const lastControlRef = React.useRef<any>(null);
+  const lastDishMappingRef = React.useRef<any>(null);
+  const lastOrderMapRef = React.useRef<OrderMap | null>(null);
+
+  const clearPaymentTimeout = () => {
+    if (paymentTimeoutRef.current) {
+      clearTimeout(paymentTimeoutRef.current);
+      paymentTimeoutRef.current = null;
+    }
+  };
+
+  const goToDock = async () => {
+    try {
+      await navigateToTableApi('initial_pose');
+    } catch (err: any) {
+      console.error('[Dock] navigation error:', err.message);
+    }
+  };
 
   // --- STT Hook ---
   const resetSilenceFallbacks = () => {
@@ -126,17 +161,108 @@ export default function RobotControlScreen() {
       }
       try {
         console.log('[STT] Text:', userText);
+        if (FEATURE_FLAGS.SHOW_STT_FULL_TEXT) {
+          setSttFullText(userText);
+        }
         const botData = await sendUserText(activeSession, userText);
         const { response, control = {}, dish_mapping } = botData as any;
+        lastControlRef.current = control;
+        lastDishMappingRef.current = dish_mapping;
 
         await speak(response, (control as any).language || 'hi-IN');
+
+        // Extract and show emojis from bot response AFTER TTS finishes
+        if (FEATURE_FLAGS.SHOW_EMOJI_POPUP) {
+          const emojis = extractEmojis(response);
+          if (emojis) {
+            setDisplayEmojis(emojis);
+            setShowEmojiPopup(true);
+            if (emojiPopupTimeoutRef.current) {
+              clearTimeout(emojiPopupTimeoutRef.current);
+            }
+            emojiPopupTimeoutRef.current = setTimeout(() => {
+              setShowEmojiPopup(false);
+            }, 2500); // Show for 2.5 seconds after speech finishes
+          }
+        }
 
         // 1. Order Confirmation and Payment Flow
         const orderMap: OrderMap = (control as any).order || {};
         if ((control as any).is_order === 1 && Object.keys(orderMap).length > 0) {
           try {
-            // Save Order to Kitchen/Backend
-            await saveOrderApi(control, dish_mapping, orderMap);
+            lastOrderMapRef.current = orderMap;
+
+            // Match menu to normalize items and update cart
+            try {
+              const matchRes = await matchMenuApi(orderMap);
+              const matchedItems = matchRes?.matched_items || [];
+              const dishMapping = matchRes?.dish_mapping || dish_mapping || {};
+              const variationMapping = matchRes?.variation_mapping || {};
+              lastDishMappingRef.current = dishMapping;
+
+              const getQty = (itemName: string) => {
+                let qty = 1;
+                Object.entries(orderMap).forEach(([key]) => {
+                  const m = key.match(/^(.*?)\((\d+)\)$/);
+                  if (m) {
+                    const name = m[1];
+                    const q = parseInt(m[2], 10);
+                    if (name.trim().toLowerCase() === itemName.trim().toLowerCase()) {
+                      qty = q;
+                    }
+                  }
+                });
+                return qty;
+              };
+
+              if (Array.isArray(matchedItems) && matchedItems.length > 0) {
+                const matchedCart: { [key: string]: CartItem } = {};
+                matchedItems.forEach((item: any) => {
+                  if (!item?.itemname) return;
+                  let displayName = item.itemname;
+                  let price = Number(item.price) || 0;
+                  if (item.has_variation && Array.isArray(item.variations) && item.variations.length > 0) {
+                    const v = item.variations[0];
+                    const vName = v?.variation_name || variationMapping?.[v?.variationid] || '';
+                    if (vName) displayName = `${displayName} - ${vName}`;
+                    price = Number(v?.price) || price;
+                  }
+                  const quantity = getQty(item.itemname);
+                  matchedCart[displayName] = {
+                    price: price,
+                    quantity: quantity,
+                  };
+                });
+                setCart(matchedCart);
+              } else {
+                // fallback to raw order map
+                const newCart: { [key: string]: CartItem } = {};
+                Object.entries(orderMap).forEach(([key, totalPrice]) => {
+                  const match = key.match(/^(.*?)\((\d+)\)$/);
+                  if (match) {
+                    const itemName = match[1];
+                    const quantity = parseInt(match[2], 10);
+                    const unitPrice = totalPrice / quantity;
+                    newCart[itemName] = { price: unitPrice, quantity };
+                  }
+                });
+                setCart(newCart);
+              }
+            } catch (e: any) {
+              console.error('[MatchMenu] error:', e.message);
+              // fallback to raw order map
+              const newCart: { [key: string]: CartItem } = {};
+              Object.entries(orderMap).forEach(([key, totalPrice]) => {
+                const match = key.match(/^(.*?)\((\d+)\)$/);
+                if (match) {
+                  const itemName = match[1];
+                  const quantity = parseInt(match[2], 10);
+                  const unitPrice = totalPrice / quantity;
+                  newCart[itemName] = { price: unitPrice, quantity };
+                }
+              });
+              setCart(newCart);
+            }
 
             // Start Payment
             const { paymentData: newPaymentData, html: qrHtmlRes, billHtml } = await startPaymentApi(control, orderMap);
@@ -149,6 +275,20 @@ export default function RobotControlScreen() {
             setQrHtml(safeQrHtml);
             setIsBillVisible(true);
             setShowPayment(true);
+            clearPaymentTimeout();
+            paymentTimeoutRef.current = setTimeout(async () => {
+              try {
+                await speak('Payment timeout. Returning to dock.', (control as any).language || 'hi-IN');
+              } catch (e) { }
+              setShowPayment(false);
+              setBillSummary(null);
+              setIsBillVisible(false);
+              setPaymentData(null);
+              await stopSpeakingApi();
+              await goToDock();
+              setIsTalking(false);
+              stopRecognition();
+            }, 120000); // 2 minutes
             stopRecognition(); // Stop STT for payment screen
             return;
           } catch (e: any) {
@@ -165,7 +305,7 @@ export default function RobotControlScreen() {
           return;
         }
 
-        // 3. Update Cart
+        // 3. Update Cart (non-order context)
         if (Object.keys(orderMap).length > 0) {
           const newCart: { [key: string]: CartItem } = {};
           Object.entries(orderMap).forEach(([key, totalPrice]) => {
@@ -199,18 +339,62 @@ export default function RobotControlScreen() {
         }
       }
     }
-    , { onSilence: handleSilence, silenceMs: 6000 });
+    , { 
+      onSilence: handleSilence, 
+      silenceMs: 6000,
+      onPartial: (partialText: string) => {
+        if (FEATURE_FLAGS.SHOW_STT_PARTIAL_TEXT) {
+          setSttPartialText(partialText);
+        }
+      }
+    });
+
+  // Clear STT texts when talking ends
+  useEffect(() => {
+    if (!isTalking) {
+      setSttFullText('');
+      setSttPartialText('');
+    }
+  }, [isTalking]);
 
   // --- Utility Handlers ---
   const handleIpSubmit = async (ipStr: string) => {
     try {
-      const status = await checkRobotStatus(ipStr);
+      setIpError(''); // Clear previous errors
+      console.log('[IP] Testing connection to:', ipStr);
+      
+      // Test the connection with a longer timeout for initial connection
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout for initial test
+      
+      const response = await fetch(`http://${ipStr}:8081/api/robot/status`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        throw new Error(`Server returned status ${response.status}`);
+      }
+      
+      // Connection successful
+      const data = await response.json();
+      console.log('[IP] Connected successfully to robot at', ipStr);
       await AsyncStorage.setItem('robot_ip', ipStr);
       setEnteredIp(ipStr);
       setIpModalVisible(false);
-      setIpError('');
     } catch (err: any) {
-      setIpError('Connection error: ' + err.message);
+      console.error('[IP] Connection test error:', err.message);
+      
+      // Provide specific error messages based on error type
+      if (err.name === 'AbortError') {
+        setIpError(`Connection timeout. Please verify:\n\n1. IP address is correct\n2. Robot server is running on port 8080\n3. Device is connected to same network\n4. No firewall blocking the connection`);
+      } else if (err.message.includes('Network request failed') || err.message.includes('Failed to fetch')) {
+        setIpError(`Network connection failed. Check:\n\n1. IP format is valid (e.g., 192.168.1.100)\n2. Robot is powered on and connected\n3. API server is running at port 8080\n4. Network is reachable`);
+      } else if (err.message.includes('404') || err.message.includes('500')) {
+        setIpError('Server error at port 8080. Ensure robot API is running correctly.');
+      } else {
+        setIpError(`Connection failed: ${err.message || 'Unknown error'}`);
+      }
     }
   };
 
@@ -238,6 +422,7 @@ export default function RobotControlScreen() {
   const handleEndTalking = async () => {
     try {
       setIsTalking(false);
+      clearPaymentTimeout();
       setSessionId(null);
       sessionIdRef.current = null;
       resetSilenceFallbacks();
@@ -251,8 +436,12 @@ export default function RobotControlScreen() {
 
   const handlePaymentSuccess = async (payment_response: any) => {
     if (!paymentData) return;
+    clearPaymentTimeout();
     try {
       await paymentSuccessApi(payment_response, paymentData);
+      if (lastControlRef.current && lastDishMappingRef.current && lastOrderMapRef.current) {
+        await saveOrderApi(lastControlRef.current, lastDishMappingRef.current, lastOrderMapRef.current);
+      }
       setIsTalking(false);
       setIsBillVisible(true);
       stopRecognition();
@@ -261,6 +450,11 @@ export default function RobotControlScreen() {
         setBillSummary(null);
         setIsBillVisible(false);
       }, 15000); // Show bill for 15 seconds
+      try {
+        await speak('Payment received. Returning to dock.', 'hi-IN');
+      } catch (e) { }
+      await stopSpeakingApi();
+      await goToDock();
     } catch (e: any) {
       console.error('[ERROR] Payment success API error:', e.message);
     } finally {
@@ -360,16 +554,26 @@ export default function RobotControlScreen() {
       try {
         const savedIp = await AsyncStorage.getItem('robot_ip');
         if (savedIp) {
-          const testRes = await checkRobotStatus(savedIp);
-          if (testRes) {
-            setEnteredIp(savedIp);
-            setIpModalVisible(false);
-            return;
+          console.log('[Init] Testing stored IP:', savedIp);
+          try {
+            const testRes = await checkRobotStatus(savedIp);
+            if (testRes) {
+              console.log('[Init] Stored IP is valid, connecting...');
+              setEnteredIp(savedIp);
+              setIpModalVisible(false);
+              return;
+            }
+          } catch (error: any) {
+            console.error('[Init] Stored IP test failed:', error.message);
+            await AsyncStorage.removeItem('robot_ip');
           }
+        } else {
+          console.log('[Init] No stored IP found');
         }
-      } catch (err) {
-        console.error('Stored IP invalid, showing modal:', err);
+      } catch (err: any) {
+        console.error('[Init] Error loading stored IP:', err.message);
       }
+      console.log('[Init] Showing IP modal for user input');
       setIpModalVisible(true);
     };
 
@@ -413,23 +617,28 @@ export default function RobotControlScreen() {
       if (!enteredIp) return;
       try {
         const data: RobotStatus = await checkRobotStatus(enteredIp);
+        setCurrentStatus(data);
+        
         const isSameAsPrevious = JSON.stringify(data) === JSON.stringify(prevData);
 
+        // Robot has reached table and is ready for STT
         const conditionsMet =
           data.movement_status !== 'moving' &&
           data.navigation_status === 'success' &&
           data.current_table !== 'initial_pose' &&
           (data.target_distance === null || data.target_distance < 0.2) &&
-          data.is_stt_active === false;
+          data.waiting_at_table === true;
 
-        if (!isSameAsPrevious) {
-          if (conditionsMet && !isTalking && !showPayment) {
-            await handleStartTalking();
-          }
+        console.log('[Status Poll] Movement:', data.movement_status, 'Nav:', data.navigation_status, 'Table:', data.current_table, 'Waiting:', data.waiting_at_table, 'STT Active:', data.is_stt_active);
+        console.log('[Status Poll] Conditions met:', conditionsMet, 'Same as previous:', isSameAsPrevious, 'IsTalking:', isTalking);
+
+        if (!isSameAsPrevious && conditionsMet && !isTalking && !showPayment) {
+          console.log('[Status Poll] Starting talking...');
+          await handleStartTalking();
         }
         setPrevData(data);
-      } catch (err) {
-        console.error('Error fetching real-time status:', err);
+      } catch (err: any) {
+        console.error('[Status Poll] Error fetching real-time status:', err.message);
       }
     };
 
@@ -507,6 +716,47 @@ export default function RobotControlScreen() {
             setPoseButtonModalVisible(true);
           }}
         />
+      </Modal>
+
+      {/* Emoji Popup Modal */}
+      <Modal visible={showEmojiPopup} transparent animationType="fade">
+        <View style={{ 
+          flex: 1, 
+          justifyContent: 'center', 
+          alignItems: 'center', 
+          backgroundColor: 'rgba(0,0,0,0.5)' 
+        }}>
+          <View style={{
+            backgroundColor: '#1a1a2e',
+            borderRadius: 20,
+            padding: 30,
+            alignItems: 'center',
+            borderWidth: 2,
+            borderColor: '#fbbf24',
+            shadowColor: '#fbbf24',
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: 0.8,
+            shadowRadius: 15,
+            elevation: 20,
+          }}>
+            <Text style={{
+              fontSize: 80,
+              marginBottom: 15,
+              textAlign: 'center',
+              lineHeight: 90,
+            }}>
+              {displayEmojis}
+            </Text>
+            <Text style={{
+              color: '#fbbf24',
+              fontSize: 12,
+              fontStyle: 'italic',
+              opacity: 0.8
+            }}>
+              Bot's response
+            </Text>
+          </View>
+        </View>
       </Modal>
 
       {/* Pose/Table Select Button Modal */}
@@ -607,7 +857,7 @@ export default function RobotControlScreen() {
             />
           </View>
         ) : (
-          <View style={styles.buttonSection}>
+          <View style={[styles.buttonSection, { flex: 1, display: 'flex', flexDirection: 'column' }]}>
             <TouchableOpacity
               style={[styles.button, isLandscape && styles.buttonLandscape, isTablet && styles.buttonTablet]}
               onPress={isTalking ? handleEndTalking : handleStartTalking}
@@ -616,11 +866,30 @@ export default function RobotControlScreen() {
                 {isTalking ? 'End Talking' : 'Start Talking'}
               </Text>
             </TouchableOpacity>
-            <View style={{ marginTop: 16 }}>
+            <View style={{ marginTop: 16, marginBottom: 12 }}>
               <Text style={[styles.buttonText, { textAlign: 'center' }]}>
                 {recognizing ? '🎙️ Listening' : '🎤 Stopped'}
               </Text>
             </View>
+
+            {/* STT Text Display - Your Voice Section */}
+            {isTalking && (FEATURE_FLAGS.SHOW_STT_FULL_TEXT || FEATURE_FLAGS.SHOW_STT_PARTIAL_TEXT) && (
+              <View style={{ marginBottom: 10, padding: 11, backgroundColor: 'rgba(100,150,200,0.15)', borderRadius: 7, borderLeftWidth: 3, borderLeftColor: '#60a5fa' }}>
+                <Text style={{ color: '#60a5fa', fontSize: 11, marginBottom: 6, fontWeight: '600' }}>
+                  🎤 Your Voice
+                </Text>
+                {FEATURE_FLAGS.SHOW_STT_PARTIAL_TEXT && sttPartialText && (
+                  <Text style={{ color: '#93c5fd', fontSize: 9, marginBottom: 4, fontStyle: 'italic', lineHeight: 14 }}>
+                    ✎ (typing...) {sttPartialText}
+                  </Text>
+                )}
+                {FEATURE_FLAGS.SHOW_STT_FULL_TEXT && sttFullText && (
+                  <Text style={{ color: '#dbeafe', fontSize: 9, fontWeight: '500', lineHeight: 14 }}>
+                    ✓ {sttFullText}
+                  </Text>
+                )}
+              </View>
+            )}
           </View>
         )}
       </LinearGradient>
@@ -648,7 +917,11 @@ export default function RobotControlScreen() {
 
         <View style={styles.contentWrapper}>
           {showPayment && (qrHtml || paymentData?.bill_html || paymentData?.upi_string) ? (
-            <View style={{ width: '100%', alignItems: 'center' }}>
+            <ScrollView 
+              style={{ flex: 1, width: '100%' }}
+              showsVerticalScrollIndicator={true}
+              contentContainerStyle={{ alignItems: 'center', paddingVertical: 10 }}
+            >
               <WebView
                 originWhitelist={['*']}
                 source={{
@@ -662,7 +935,8 @@ export default function RobotControlScreen() {
                 domStorageEnabled={true}
                 mixedContentMode={'always'}
                 startInLoadingState={true}
-                style={[styles.mainLogo, isLandscape && styles.mainLogoLandscape, isTablet && styles.mainLogoTablet]}
+                scrollEnabled={false}
+                style={{ width: '90%', height: 500 }}
                 onMessage={(event) => {
                   try {
                     const data = JSON.parse(event.nativeEvent.data);
@@ -680,7 +954,7 @@ export default function RobotControlScreen() {
                   console.error('[WebView] error: ', nativeEvent);
                 }}
               />
-            </View>
+            </ScrollView>
           ) : (
             <Image
               source={require('../assets/the-robot-restaurant.jpeg')}
@@ -689,31 +963,165 @@ export default function RobotControlScreen() {
             />
           )}
 
-          <View style={styles.middlePanel}>
-            <CartDisplay
-              cart={cart}
-              paymentData={paymentData}
-              increaseQuantity={increaseQuantity}
-              decreaseQuantity={decreaseQuantity}
-              onDeleteItem={(item) => {
-                setItemToDelete(item);
-                setShowConfirmDelete(true);
-              }}
-              isTalking={isTalking}
-            />
+          <View style={[styles.middlePanel, { flex: 1 }]}>
+            <ScrollView
+              showsVerticalScrollIndicator={true}
+              scrollEnabled={true}
+              nestedScrollEnabled={true}
+            >
+              <CartDisplay
+                cart={cart}
+                paymentData={paymentData}
+                increaseQuantity={increaseQuantity}
+                decreaseQuantity={decreaseQuantity}
+                onDeleteItem={(item) => {
+                  setItemToDelete(item);
+                  setShowConfirmDelete(true);
+                }}
+                isTalking={isTalking}
+              />
+            </ScrollView>
           </View>
 
-          <View style={[styles.bottomRow, isLandscape && styles.bottomRowLandscape, isTablet && styles.bottomRowTablet]}>
+          {/* Main Panel Footer - Status, Navigation, Position, Voice */}
+          <View style={{
+            backgroundColor: 'rgba(10,10,20,0.8)',
+            borderTopWidth: 1,
+            borderTopColor: 'rgba(255,255,255,0.15)',
+            padding: 10,
+            minHeight: 80,
+          }}>
+            <ScrollView 
+              horizontal={true}
+              showsHorizontalScrollIndicator={false}
+              scrollEnabled={true}
+              contentContainerStyle={{ paddingHorizontal: 8 }}
+            >
+              {/* Status Mini Card */}
+              {currentStatus && FEATURE_FLAGS.SHOW_ROBOT_STATUS && (
+                <View style={{ 
+                  marginRight: 12, 
+                  padding: 9, 
+                  backgroundColor: 'rgba(34,197,94,0.15)', 
+                  borderRadius: 6, 
+                  borderLeftWidth: 2, 
+                  borderLeftColor: '#22c55e',
+                  minWidth: 140
+                }}>
+                  <Text style={{ color: '#86efac', fontSize: 9, fontWeight: '600', marginBottom: 4 }}>
+                    ● Status
+                  </Text>
+                  <Text style={{ color: '#d1fae5', fontSize: 8, marginBottom: 2 }}>
+                    📍 {currentStatus.current_table}
+                  </Text>
+                  <Text style={{ 
+                    color: currentStatus.movement_status === 'stopped' ? '#86efac' : '#fbbf24', 
+                    fontSize: 8 
+                  }}>
+                    🚀 {currentStatus.movement_status}
+                  </Text>
+                </View>
+              )}
+
+              {/* Navigation Mini Card */}
+              {currentStatus && FEATURE_FLAGS.SHOW_ROBOT_NAVIGATION && (
+                <View style={{ 
+                  marginRight: 12, 
+                  padding: 9, 
+                  backgroundColor: 'rgba(59,130,246,0.15)', 
+                  borderRadius: 6, 
+                  borderLeftWidth: 2, 
+                  borderLeftColor: '#3b82f6',
+                  minWidth: 140
+                }}>
+                  <Text style={{ color: '#93c5fd', fontSize: 9, fontWeight: '600', marginBottom: 4 }}>
+                    ◆ Navigation
+                  </Text>
+                  {currentStatus.target_table ? (
+                    <>
+                      <Text style={{ color: '#dbeafe', fontSize: 8, marginBottom: 2 }}>
+                        🎯 {currentStatus.target_table}
+                      </Text>
+                      {currentStatus.target_distance !== null && (
+                        <Text style={{ color: '#dbeafe', fontSize: 8 }}>
+                          📏 {currentStatus.target_distance.toFixed(2)}m
+                        </Text>
+                      )}
+                    </>
+                  ) : (
+                    <Text style={{ color: '#93c5fd', fontSize: 8 }}>
+                      No navigation
+                    </Text>
+                  )}
+                </View>
+              )}
+
+              {/* Position Mini Card */}
+              {currentStatus && FEATURE_FLAGS.SHOW_ROBOT_POSE && currentStatus.current_pose && (
+                <View style={{ 
+                  marginRight: 12, 
+                  padding: 9, 
+                  backgroundColor: 'rgba(168,85,247,0.15)', 
+                  borderRadius: 6, 
+                  borderLeftWidth: 2, 
+                  borderLeftColor: '#a855f7',
+                  minWidth: 140
+                }}>
+                  <Text style={{ color: '#d8b4fe', fontSize: 9, fontWeight: '600', marginBottom: 4 }}>
+                    ◆ Position
+                  </Text>
+                  <Text style={{ color: '#ede9fe', fontSize: 8, marginBottom: 2 }}>
+                    X: {currentStatus.current_pose.position.x.toFixed(1)}
+                  </Text>
+                  <Text style={{ color: '#ede9fe', fontSize: 8 }}>
+                    Y: {currentStatus.current_pose.position.y.toFixed(1)}
+                  </Text>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+
+          {/* Bottom Row - Hidden if using footer */}
+          {!FEATURE_FLAGS.DINING_EXPERIENCE_AS_FOOTER && (
+            <View style={[styles.bottomRow, isLandscape && styles.bottomRowLandscape, isTablet && styles.bottomRowTablet]}>
+              <Image
+                source={require('../assets/the-robot-restaurant.jpeg')}
+                style={[styles.icon, isLandscape && styles.iconLandscape, isTablet && styles.iconTablet]}
+                resizeMode="contain"
+              />
+              <Text style={[styles.experienceText, isLandscape && styles.experienceTextLandscape, isTablet && styles.experienceTextTablet]}>
+                Dining Experience
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* --- Fixed Footer (Dining Experience) --- */}
+        {FEATURE_FLAGS.DINING_EXPERIENCE_AS_FOOTER && (
+          <View style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: 60,
+            backgroundColor: 'rgba(20,20,40,0.95)',
+            borderTopWidth: 1,
+            borderTopColor: 'rgba(255,255,255,0.1)',
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            paddingHorizontal: 15,
+          }}>
             <Image
               source={require('../assets/the-robot-restaurant.jpeg')}
-              style={[styles.icon, isLandscape && styles.iconLandscape, isTablet && styles.iconTablet]}
+              style={{ width: 40, height: 40, marginRight: 12, borderRadius: 4 }}
               resizeMode="contain"
             />
-            <Text style={[styles.experienceText, isLandscape && styles.experienceTextLandscape, isTablet && styles.experienceTextTablet]}>
-              Dining Experience
+            <Text style={{ color: '#a0aec0', fontSize: 13, fontWeight: '500' }}>
+              🍽️ Dining Experience
             </Text>
           </View>
-        </View>
+        )}
       </LinearGradient>
     </View>
   );

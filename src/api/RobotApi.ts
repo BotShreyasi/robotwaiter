@@ -2,6 +2,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Pose, Table, RobotStatus } from '../types';
+import { NETWORK_CONFIG } from '../config/Config';
 
 const getRobotIp = async (): Promise<string> => {
   const ip = await AsyncStorage.getItem('robot_ip');
@@ -11,19 +12,52 @@ const getRobotIp = async (): Promise<string> => {
   return ip;
 };
 
-const robotUrl = (ip: string, path: string) => `http://${ip}:8080/api/robot/${path}`;
+const robotUrl = (ip: string, path: string) => `http://${ip}:8081/api/robot/${path}`;
+
+// Helper function to make requests with timeout
+const fetchWithTimeout = async (
+  url: string,
+  options: RequestInit = {},
+  timeoutMs: number = NETWORK_CONFIG.robotApiTimeout
+): Promise<Response> => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    console.log(`[RobotApi] Fetching: ${url} (timeout: ${timeoutMs}ms)`);
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    console.log(`[RobotApi] Response status: ${response.status} from ${url}`);
+    return response;
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    console.error(`[RobotApi] Network error for ${url}:`, error.message);
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timeout after ${timeoutMs}ms - Robot may be unreachable or network issue`);
+    }
+    throw error;
+  }
+};
 
 export async function checkRobotStatus(ip: string): Promise<RobotStatus> {
-  const response = await fetch(robotUrl(ip, 'status'));
-  if (!response.ok) {
-    throw new Error(`Failed to fetch status: ${response.statusText}`);
+  try {
+    const response = await fetchWithTimeout(robotUrl(ip, 'status'));
+    if (!response.ok) {
+      throw new Error(`Failed to fetch status: ${response.statusText}`);
+    }
+    return response.json();
+  } catch (error: any) {
+    console.error('[RobotApi] checkRobotStatus error:', error.message);
+    throw error;
   }
-  return response.json();
 }
 
 export async function startSpeakingApi(): Promise<void> {
   const ip = await getRobotIp();
-  const res = await fetch(robotUrl(ip, 'stt_start'), {
+  const res = await fetchWithTimeout(robotUrl(ip, 'stt_start'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ is_speaking: true }),
@@ -35,7 +69,7 @@ export async function startSpeakingApi(): Promise<void> {
 
 export async function stopSpeakingApi(): Promise<void> {
   const ip = await getRobotIp();
-  const res = await fetch(robotUrl(ip, 'stt_stop'), {
+  const res = await fetchWithTimeout(robotUrl(ip, 'stt_stop'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ is_speaking: false }),
@@ -46,9 +80,8 @@ export async function stopSpeakingApi(): Promise<void> {
 }
 
 export async function fetchPosesApi(): Promise<Pose[]> {
-  debugger;
   const ip = await getRobotIp();
-  const response = await fetch(robotUrl(ip, 'set_poses'));
+  const response = await fetchWithTimeout(robotUrl(ip, 'set_poses'));
   if (!response.ok) {
     throw new Error('Failed to fetch poses');
   }
@@ -68,7 +101,7 @@ export async function fetchPosesApi(): Promise<Pose[]> {
 
 export async function navigateToPoseApi(pose: { x: number; y: number; yaw: number }): Promise<void> {
   const ip = await getRobotIp();
-  const response = await fetch(robotUrl(ip, 'set_pose'), {
+  const response = await fetchWithTimeout(robotUrl(ip, 'set_pose'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(pose),
@@ -80,7 +113,7 @@ export async function navigateToPoseApi(pose: { x: number; y: number; yaw: numbe
 
 export async function fetchTablesApi(): Promise<Table[]> {
   const ip = await getRobotIp();
-  const res = await fetch(robotUrl(ip, 'tables'));
+  const res = await fetchWithTimeout(robotUrl(ip, 'tables'));
   if (!res.ok) {
     throw new Error('Failed to fetch tables');
   }
@@ -93,7 +126,7 @@ export async function fetchTablesApi(): Promise<Table[]> {
 
 export async function navigateToTableApi(tableName: string): Promise<void> {
   const ip = await getRobotIp();
-  const res = await fetch(robotUrl(ip, 'navigate_table'), {
+  const res = await fetchWithTimeout(robotUrl(ip, 'navigate_table'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ table_name: tableName }),
@@ -105,7 +138,7 @@ export async function navigateToTableApi(tableName: string): Promise<void> {
 
 export async function updateStatusApi(currentTable: string, robotId: string, status: 'reached' | 'completed'): Promise<void> {
   const ip = await getRobotIp();
-  const res = await fetch(robotUrl(ip, 'update-status/'), {
+  const res = await fetchWithTimeout(robotUrl(ip, 'update-status/'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

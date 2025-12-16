@@ -56,10 +56,15 @@ const IPModal: React.FC<IPModalProps> = ({ isVisible, onIpSubmit, ipError, setIp
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={[styles.modalSmallBox, isLandscape && styles.modalSmallBoxLandscape, isTablet && styles.modalSmallBoxTablet]}>
-            <ScrollView contentContainerStyle={{ alignItems: 'center' }}>
+            <ScrollView contentContainerStyle={{ alignItems: 'center', paddingBottom: 20 }}>
               <Text style={[styles.modalTitle, isLandscape && styles.modalTitleLandscape, isTablet && styles.modalTitleTablet]}>
                 Enter Backend IP Address
               </Text>
+              
+              <Text style={[styles.descriptionText, { marginVertical: 10, fontSize: 12, textAlign: 'center', color: '#666' }]}>
+                For Development: Enter robot's local IP (192.168.x.x or 10.x.x.x)
+              </Text>
+              
               <View style={[styles.otpContainer, isLandscape && styles.otpContainerLandscape, isTablet && styles.otpContainerTablet]}>
                 {ipParts.map((part, index) => (
                   <TextInput
@@ -67,13 +72,19 @@ const IPModal: React.FC<IPModalProps> = ({ isVisible, onIpSubmit, ipError, setIp
                     ref={ipRefs[index]}
                     keyboardType="number-pad"
                     maxLength={3}
+                    placeholder={index === 0 ? '192' : index === 1 ? '168' : '0'}
+                    placeholderTextColor="#ccc"
                     style={[styles.otpInput, isLandscape && styles.otpInputLandscape, isTablet && styles.otpInputTablet]}
                     value={part}
                     onChangeText={(val) => handleIpChange(val, index)}
                   />
                 ))}
               </View>
-              {ipError ? <Text style={[styles.errorText, isTablet && styles.errorTextTablet]}>{ipError}</Text> : null}
+              {ipError ? (
+                <Text style={[styles.errorText, isTablet && styles.errorTextTablet, { marginBottom: 10 }]}>
+                  {ipError}
+                </Text>
+              ) : null}
               <Pressable
                 style={[styles.submitButton, isLandscape && styles.submitButtonLandscape, isTablet && styles.submitButtonTablet]}
                 onPress={handleSubmit}
