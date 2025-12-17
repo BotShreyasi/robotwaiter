@@ -15,7 +15,7 @@ const formatItemName = (str: string) => {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 };
 
-const CartDisplay: React.FC<CartDisplayProps> = ({ cart, paymentData, increaseQuantity, decreaseQuantity, onDeleteItem, isTalking }) => {
+const CartDisplay: React.FC<CartDisplayProps> = ({ cart, paymentData, increaseQuantity, decreaseQuantity, onDeleteItem, isTalking, onScanPay, payDisabledReason }) => {
   if (Object.keys(cart).length === 0 || !isTalking) {
     // Show welcome text if cart is empty or robot is not talking
     const isLandscape = Dimensions.get('window').height < Dimensions.get('window').width;
@@ -27,8 +27,6 @@ const CartDisplay: React.FC<CartDisplayProps> = ({ cart, paymentData, increaseQu
           isTablet && styles.welcomeTextTablet,
         ]}
         numberOfLines={3}
-        adjustsFontSizeToFit
-        minimumFontScale={0.5}
       >
         WELCOME TO THE{"\n"}FUTURE OF THE{"\n"}DINING
       </Text>
@@ -113,6 +111,23 @@ const CartDisplay: React.FC<CartDisplayProps> = ({ cart, paymentData, increaseQu
             >
               Total: ₹{getTotal().toFixed(2)}
             </Text>
+
+            {/* Manual payment button (in addition to auto-payment flow) */}
+            <View style={styles.payButtonRow}>
+              <TouchableOpacity
+                style={[
+                  styles.payButton,
+                  (!onScanPay || !!payDisabledReason) && styles.payButtonDisabled,
+                ]}
+                onPress={onScanPay}
+                disabled={!onScanPay || !!payDisabledReason}
+              >
+                <Text style={styles.payButtonText}>Scan & Pay</Text>
+              </TouchableOpacity>
+            </View>
+            {!!payDisabledReason && (
+              <Text style={styles.payHintText}>{payDisabledReason}</Text>
+            )}
           </View>
         </ScrollView>
       </View>

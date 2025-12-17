@@ -86,17 +86,57 @@ export async function fetchPosesApi(): Promise<Pose[]> {
     throw new Error('Failed to fetch poses');
   }
   const data = await response.json();
-  if (!data || !data.set_poses) {
+
+  // Backends vary; accept a few common shapes:
+  // - [{...}, {...}]
+  // - { set_poses: [...] }
+  // - { set_poses: { key1: {...}, key2: {...} } }
+  // - { poses: [...] }
+  // - { poses: { key1: {...}, key2: {...} } }
+  // - { success: true, poses: [...] }
+  const rawPoses: any[] | undefined = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.set_poses)
+      ? data.set_poses
+      : data?.set_poses && typeof data.set_poses === 'object'
+        ? Object.values(data.set_poses)
+        : Array.isArray(data?.poses)
+          ? data.poses
+          : data?.poses && typeof data.poses === 'object'
+            ? Object.values(data.poses)
+            : Array.isArray(data?.data?.poses)
+              ? data.data.poses
+              : data?.data?.poses && typeof data.data.poses === 'object'
+                ? Object.values(data.data.poses)
+                : undefined;
+
+  if (!rawPoses) {
     throw new Error('Invalid poses response format');
   }
-  // Convert API data to Pose array
-  return data.set_poses.map((p: any) => ({
-    name: p.name,
-    description: p.description,
-    x: String(p.x),
-    y: String(p.y),
-    yaw: String(p.yaw),
-  }));
+debugger;
+  // Convert API data to Pose array (be defensive about field names)
+  const poses = rawPoses.map((p: any, idx: number) => {
+    const z = p?.z ?? p?.orientation?.z;
+    const w = p?.w ?? p?.orientation?.w;
+    const computedYaw =
+      typeof z === 'number' && typeof w === 'number'
+        ? 2 * Math.atan2(z, w) // radians
+        : undefined;
+
+    return {
+      name: String(p?.name ?? p?.pose_name ?? p?.id ?? `Pose ${idx + 1}`),
+      description: p?.description ?? p?.label ?? '',
+      x: String(p?.x ?? p?.pos_x ?? p?.position?.x ?? 0),
+      y: String(p?.y ?? p?.pos_y ?? p?.position?.y ?? 0),
+      yaw: String(p?.yaw ?? p?.theta ?? p?.orientation?.yaw ?? computedYaw ?? 0),
+    };
+  });
+
+  if (poses.length === 0) {
+    console.warn('[RobotApi] fetchPosesApi: received 0 poses. Raw response keys:', data && typeof data === 'object' ? Object.keys(data) : typeof data);
+  }
+debugger;
+  return poses;
 }
 
 export async function navigateToPoseApi(pose: { x: number; y: number; yaw: number }): Promise<void> {

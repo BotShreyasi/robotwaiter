@@ -19,7 +19,7 @@ export const styles = StyleSheet.create({
 
     // --- Sidebar/Main Panel Styles ---
     sidebar: {
-        width: '35%',
+        width: '25%',
         backgroundColor: '#1c1c1e',
         padding: 15,
         alignItems: 'center',
@@ -27,12 +27,12 @@ export const styles = StyleSheet.create({
         borderRightColor: '#2c2c2e',
     },
     sidebarLandscape: {
-        width: '35%',
+        width: '25%',
         padding: 10,
     },
     sidebarTablet: {
-        width: '40%',
-        minWidth: 300,
+        width: '30%',
+        minWidth: 240,
         padding: 20,
     },
     mainPanel: {
@@ -101,10 +101,10 @@ export const styles = StyleSheet.create({
         flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.7)', justifyContent: 'center', alignItems: 'center',
     },
     modalSmallBox: {
-        backgroundColor: '#222', padding: 20, borderRadius: 10, width: '85%', maxHeight: '80%', alignItems: 'center', position: 'relative',
+        backgroundColor: '#222', padding: 20, borderRadius: 10, width: '85%', alignItems: 'center', position: 'relative',
     },
     modalSmallBoxLandscape: { width: '60%', padding: 15, },
-    modalSmallBoxTablet: { width: '60%', padding: 25, borderRadius: 15, maxHeight: '85%', },
+    modalSmallBoxTablet: { width: '60%', padding: 25, borderRadius: 15 },
 
     modalTitle: { fontSize: 18, color: '#fff', marginBottom: 20, },
     modalTitleLandscape: { fontSize: 14, marginBottom: 15, },
@@ -193,9 +193,17 @@ export const styles = StyleSheet.create({
     },
     totalContainer: { paddingTop: 10, borderTopWidth: 1, borderTopColor: '#2c2c2e', },
     subTotalText: { fontSize: 16, marginBottom: 3, color: '#ffffff', fontWeight: '600', },
+    subTotalTextTablet: { fontSize: 18, marginBottom: 4 },
     chargeText: { fontSize: 15, color: '#ccc', marginBottom: 2, },
+    chargeTextTablet: { fontSize: 17, marginBottom: 3 },
     totalText: { fontSize: 16, fontWeight: 'bold', color: '#00eaff', },
     totalTextTablet: { fontSize: 20, },
+
+    payButtonRow: { flexDirection: 'row', gap: 10, marginTop: 10, justifyContent: 'space-between' },
+    payButton: { flex: 1, backgroundColor: '#0a84ff', paddingVertical: 10, borderRadius: 10, alignItems: 'center' },
+    payButtonDisabled: { opacity: 0.5 },
+    payButtonText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+    payHintText: { color: '#9ca3af', fontSize: 11, marginTop: 6, textAlign: 'center' },
 
     // --- Pin Modal Success State ---
     successContainer: { marginTop: 20, alignItems: 'center', },
@@ -294,6 +302,7 @@ export const styles = StyleSheet.create({
         paddingVertical: 5,
     },
 
+    cartItemPrice: { fontSize: 12, color: '#ccc', marginTop: 2 },
     cartItemPriceTablet: {
         fontSize: 14,
         marginTop: 3,

@@ -8,7 +8,11 @@ import { styles } from '../SharedStyles'; // Shared styles file
 const { width } = Dimensions.get('window');
 const isTablet = width >= 600;
 
-const IPModal: React.FC<IPModalProps> = ({ isVisible, onIpSubmit, ipError, setIpError }) => {
+interface IPModalPropsExtended extends IPModalProps {
+  inline?: boolean;
+}
+
+const IPModal: React.FC<IPModalPropsExtended> = ({ isVisible, onIpSubmit, ipError, setIpError, inline = false }) => {
   const [ipParts, setIpParts] = useState(['', '', '', '']);
   const ipRefs = [React.createRef<TextInput>(), React.createRef<TextInput>(), React.createRef<TextInput>(), React.createRef<TextInput>()];
 

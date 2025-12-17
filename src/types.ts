@@ -90,4 +90,6 @@ export interface CartDisplayProps {
   decreaseQuantity: (item: string) => void;
   onDeleteItem: (item: string) => void;
   isTalking: boolean;
+  onScanPay?: () => void;
+  payDisabledReason?: string;
 }
