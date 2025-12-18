@@ -166,6 +166,7 @@ export async function fetchTablesApi(): Promise<Table[]> {
 
 export async function navigateToTableApi(tableName: string): Promise<void> {
   const ip = await getRobotIp();
+  debugger;
   const res = await fetchWithTimeout(robotUrl(ip, 'navigate_table'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

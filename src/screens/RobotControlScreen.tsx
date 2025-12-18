@@ -8,14 +8,14 @@ import { WebView } from 'react-native-webview';
 import { useSTT } from '../azure/STTService';
 import { speak } from '../azure/TTSService';
 import { startSession, sendUserText } from '../services/api';
-import { 
-  useCart, 
-  useRobotNavigation, 
-  usePayment, 
-  useIPConnection, 
+import {
+  useCart,
+  useRobotNavigation,
+  usePayment,
+  useIPConnection,
   useOrientation,
   useSilenceFallback,
-  useEmojiPopup 
+  useEmojiPopup
 } from './hooks';
 
 // Components
@@ -37,9 +37,9 @@ import STTTextPanel from './components/STTTextPanel';
 import {
   startSpeakingApi, stopSpeakingApi, checkRobotStatus,
 } from '../api/RobotApi';
-import { 
-  saveOrderApi, startPaymentApi, paymentSuccessApi, 
-  generateQRHtml, matchMenuApi 
+import {
+  saveOrderApi, startPaymentApi, paymentSuccessApi,
+  generateQRHtml, matchMenuApi
 } from '../api/OrderApi';
 
 // Config & Types
@@ -71,13 +71,13 @@ const { width } = Dimensions.get('window');
 export default function RobotControlScreen() {
   // --- Hooks ---
   const { isLandscape } = useOrientation();
-  const { 
-    enteredIp, 
-    isIpModalVisible, 
-    ipError, 
-    handleIpSubmit, 
-    setIpModalVisible, 
-    setIpError 
+  const {
+    enteredIp,
+    isIpModalVisible,
+    ipError,
+    handleIpSubmit,
+    setIpModalVisible,
+    setIpError
   } = useIPConnection();
 
   const {
@@ -215,7 +215,7 @@ export default function RobotControlScreen() {
       }, BILL_DISPLAY_TIMEOUT_MS);
       try {
         await speak(PAYMENT_SUCCESS_MESSAGE, DEFAULT_LANGUAGE);
-      } catch (e) {}
+      } catch (e) { }
       await stopSpeakingApi();
       await goToDock();
     } catch (e: any) {
@@ -226,6 +226,7 @@ export default function RobotControlScreen() {
   };
 
   const handleManualScanPay = async () => {
+    debugger;
     try {
       if (!lastControlRef.current || !lastOrderMapRef.current) {
         return;
@@ -240,12 +241,14 @@ export default function RobotControlScreen() {
         newPaymentData?.bill_html ||
         '<html><body style="background:#000;color:#fff;"><h2>Bill data unavailable</h2></body></html>';
       const safeQrHtml = qrHtmlRes || safeBillHtml;
+      debugger;
+
       setBillSummary(safeBillHtml);
       setQrHtml(safeQrHtml);
       setIsBillVisible(true);
       setShowPayment(true);
-
-      clearPaymentTimeout();
+      debugger;
+      // clearPaymentTimeout();
       setPaymentTimeout(() => {
         closePayment();
       });
@@ -342,7 +345,7 @@ export default function RobotControlScreen() {
             setPaymentTimeout(async () => {
               try {
                 await speak(PAYMENT_TIMEOUT_MESSAGE, (control as any).language || DEFAULT_LANGUAGE);
-              } catch (e) {}
+              } catch (e) { }
               closePayment();
               await stopSpeakingApi();
               await goToDock();
@@ -386,7 +389,7 @@ export default function RobotControlScreen() {
         }
       }
     },
-    { 
+    {
       onSilence: () => handleSilence(
         (shouldContinue) => {
           if (!shouldContinue) {
@@ -421,7 +424,7 @@ export default function RobotControlScreen() {
       try {
         const data: RobotStatus = await checkRobotStatus(enteredIp);
         setCurrentStatus(data);
-        
+
         const isSameAsPrevious = JSON.stringify(data) === JSON.stringify(prevData);
         const conditionsMet =
           data.movement_status !== 'moving' &&
@@ -550,13 +553,13 @@ export default function RobotControlScreen() {
               </Text>
             </View>
 
-              <View style={{ width: '100%', paddingHorizontal: 12, marginTop: 0 }}>
-                <STTTextPanel
-                  isTalking={isTalking}
-                  partialText={sttPartialText}
-                  fullText={sttFullText}
-                />
-              </View>
+            <View style={{ width: '100%', paddingHorizontal: 12, marginTop: 0 }}>
+              <STTTextPanel
+                isTalking={isTalking}
+                partialText={sttPartialText}
+                fullText={sttFullText}
+              />
+            </View>
             {/* status panels moved to the main panel bottom area */}
           </View>
         )}
@@ -586,16 +589,15 @@ export default function RobotControlScreen() {
         >
           <Text style={[styles.toggleIconText, isLandscape && styles.toggleIconTextLandscape, IS_TABLET && styles.toggleIconTextTablet]}>☰</Text>
         </TouchableOpacity>
-
         <ScrollView contentContainerStyle={styles.contentWrapper} keyboardShouldPersistTaps="handled">
           {showPayment && (qrHtml || paymentData?.bill_html || paymentData?.upi_string) ? (
-            <View style={{ width: '100%', alignItems: 'center' }}>
-              <TouchableOpacity
+            <View style={{ flex: 1, width: width * 1, maxWidth: '100%', alignSelf: 'center', borderRadius: 10,zIndex:999999, minHeight: 400, height: 400 }}>
+              {/* <TouchableOpacity
                 onPress={closePayment}
                 style={{ alignSelf: 'flex-end', marginRight: 12, marginBottom: 8, padding: 8 }}
               >
                 <Text style={{ color: '#fff', fontSize: 22 }}>×</Text>
-              </TouchableOpacity>
+              </TouchableOpacity> */}
               <WebView
                 originWhitelist={['*']}
                 source={{
@@ -635,7 +637,7 @@ export default function RobotControlScreen() {
               resizeMode="contain"
             />
           )}
-
+{/* Cart Display */}
           <View style={styles.middlePanel}>
             <CartDisplay
               cart={cart}
@@ -654,7 +656,7 @@ export default function RobotControlScreen() {
 
           {/* Status panels row above bottom area (horizontal) */}
           {currentStatus && (
-            <View style={{ width: '100%', alignSelf: 'center', marginTop: 12 }}>
+            <View style={{ width: '100%', alignSelf: 'center'}}>
               <View style={{ width: '90%', alignSelf: 'center', flexDirection: 'row', justifyContent: 'space-between' }}>
                 <View style={{ flex: 1, marginRight: 6 }}>
                   <RobotStatusPanel status={currentStatus} />
@@ -676,7 +678,7 @@ export default function RobotControlScreen() {
                 />
               </View>
 
-              
+
 
             </View>
           )}
@@ -686,7 +688,7 @@ export default function RobotControlScreen() {
               source={require('../assets/the-robot-restaurant.jpeg')}
               style={[styles.icon, isLandscape && styles.iconLandscape, IS_TABLET && styles.iconTablet]}
               resizeMode="contain"
-            />
+            />      
             <Text style={[styles.experienceText, isLandscape && styles.experienceTextLandscape, IS_TABLET && styles.experienceTextTablet]}>
               Dining Experience
             </Text>

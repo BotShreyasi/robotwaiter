@@ -17,9 +17,9 @@ export default function STTTextPanel({ isTalking, partialText, fullText }: STTTe
   return (
     <View style={{ marginTop: 12, padding: 11, backgroundColor: 'rgba(100,150,200,0.15)', borderRadius: 7, borderLeftWidth: 3, borderLeftColor: '#60a5fa' }}>
       <Text style={{ color: '#60a5fa', fontSize: 11, marginBottom: 6, fontWeight: '600' }}>
-        🎤 Your Voice
+        🎤 
       </Text>
-      {FEATURE_FLAGS.SHOW_STT_PARTIAL_TEXT && partialText && (
+      {FEATURE_FLAGS.SHOW_STT_PARTIAL_TEXT  && (
         <Text style={{ color: '#93c5fd', fontSize: 9, marginBottom: 4, fontStyle: 'italic', lineHeight: 14 }}>
           ✎ (typing...) {partialText}
         </Text>
