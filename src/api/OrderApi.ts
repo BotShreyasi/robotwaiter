@@ -24,7 +24,22 @@ const formatItemName = (str: string) => {
         .replace(/\b\w/g, (c) => c.toUpperCase());
 };
 
-export async function saveOrderApi(control: any, dish_mappings: any, order: OrderMap): Promise<void> {
+const normalizeTableNumber = (table: unknown): string | null => {
+    if (table === undefined || table === null) return null;
+    if (typeof table === 'string' || typeof table === 'number') {
+        const trimmed = String(table).trim();
+        return trimmed || null;
+    }
+    if (typeof table === 'object') {
+        const t: any = table;
+        if (t.table_number) return normalizeTableNumber(t.table_number);
+        if (t.current_table) return normalizeTableNumber(t.current_table);
+        if (t.name) return normalizeTableNumber(t.name);
+    }
+    return null;
+};
+
+export async function saveOrderApi(control: any, dish_mappings: any, order: OrderMap, tableName?: string | null): Promise<void> {
     // Save order logic is very complex, so we'll simplify and use the main points:
     const orderEntries = Object.entries(order);
 
@@ -33,7 +48,16 @@ export async function saveOrderApi(control: any, dish_mappings: any, order: Orde
         return;
     }
     const dish_mapping = control?.dish_mapping || {};
-    const table_number = control?.payment_data?.table_number || 'PDR1';
+    
+    // Get table number with proper fallbacks
+    let table_number = normalizeTableNumber(tableName) ||
+                     normalizeTableNumber(control?.payment_data?.table_number);
+    
+    // If no table number found, use default
+    if (!table_number) {
+        console.warn('No table number provided, using default');
+        table_number = 'PDR1';
+    }
     const customer = control?.customer || {};
     const special_notes = control?.special_notes || {};
     const order_info = control?.order_info || {};
@@ -111,9 +135,22 @@ export async function saveOrderApi(control: any, dish_mappings: any, order: Orde
     console.log('[DEBUG] Save order response:', await res.json());
 }
 
-export async function startPaymentApi(control: any, order: OrderMap): Promise<{ paymentData: PaymentData; html: string; billHtml: string }> {
+export async function startPaymentApi(
+    control: any,
+    order: OrderMap,
+    tableName?: string | null
+): Promise<{ paymentData: PaymentData; html: string; billHtml: string }> {
     const orderEntries = Object.entries(order);
-    const table_number = control?.payment_data?.table_number || 'PDR1';
+    
+    // Get table number with proper fallbacks
+    let table_number = normalizeTableNumber(tableName) ||
+                     normalizeTableNumber(control?.payment_data?.table_number);
+    
+    // If no table number found, use default
+    if (!table_number) {
+        console.warn('No table number provided, using default');
+        table_number = 'PDR1';
+    }
     const total_amount = Number(control?.payment_data?.total_amount) || orderEntries.reduce((sum, [, val]) => sum + val, 0);
     const total_price_in_paise = Math.round(total_amount * 100);
     // debugger;
@@ -144,7 +181,7 @@ export async function startPaymentApi(control: any, order: OrderMap): Promise<{ 
         key: paymentRes.key,
         amount: paymentRes.amount,
         currency: paymentRes.currency,
-        table_number: paymentRes.table_number,
+        table_number: paymentRes.table_number || table_number,
         order_id: paymentRes.order_id,
         payment_time: paymentRes.payment_time,
         robot_charge: paymentRes.robot_charge,

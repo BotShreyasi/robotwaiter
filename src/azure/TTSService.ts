@@ -35,8 +35,10 @@ const emit = (e: SpeakEvent) => emitSpeakEvent(e);
 
 const CACHE_DIR = `${RNFS.CachesDirectoryPath}/tts-cache/`;
 const DEFAULT_LANG = 'hi-IN';
-const DEFAULT_VOICE = 'en-IN-Aarti:DragonHDV2Neural';
+// const DEFAULT_VOICE = 'en-IN-Aarti:DragonHDV2Neural'; 
+//hesisVoiceName = "en-IN-Meera:DragonHDLatestNeural  config.SpeechSynthesisVoiceName = "en-IN-NeerjaNeural";
 
+const DEFAULT_VOICE = 'en-IN-Meera:DragonHDLatestNeural';
 let currentSound: Sound | null = null;
 let preEndTimer: NodeJS.Timeout | null = null;
 type QueueItem = {

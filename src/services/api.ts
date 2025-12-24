@@ -69,6 +69,22 @@ const safeParseJSON = (str: string): any => {
   }
 };
 
+const normalizeTableNumber = (val: any): string => {
+  if (val === undefined || val === null) return '';
+  if (typeof val === 'string' || typeof val === 'number') {
+    return String(val).trim();
+  }
+  if (typeof val === 'object') {
+    const maybe = (val as any);
+    return (
+      normalizeTableNumber(maybe.table_number) ||
+      normalizeTableNumber(maybe.current_table) ||
+      normalizeTableNumber(maybe.name)
+    );
+  }
+  return '';
+};
+
 export const startSession = async (): Promise<StartSessionResult> => {
   const currentDateTime = new Date().toISOString().slice(0, 19).replace('T', ' ');
   const payload = {
@@ -280,7 +296,7 @@ export const sendUserText = async (session_id: string,
               payment_time: extracted.payment_data.payment_time || new Date().toISOString(),
               robot_charge: extracted.payment_data.robot_charge || 50,
               sub_total: extracted.payment_data.sub_total || 0,
-              table_number: extracted.payment_data.table_number || 'PDR1',
+              table_number: normalizeTableNumber(extracted.payment_data.table_number),
               total_amount: extracted.payment_data.total_amount || extracted.payment_data.amount || 0,
             };
             //   manoj comm...   console.log('[DEBUG] Payment data:', payment_data);
@@ -445,7 +461,7 @@ export const sendUserTextSTOP = async (
               extracted.payment_data.payment_time || new Date().toISOString(),
             robot_charge: extracted.payment_data.robot_charge || 50,
             sub_total: extracted.payment_data.sub_total || 0,
-            table_number: extracted.payment_data.table_number || 'PDR1',
+            table_number: normalizeTableNumber(extracted.payment_data.table_number),
             total_amount:
               extracted.payment_data.total_amount || extracted.payment_data.amount || 0,
           } as PaymentData;

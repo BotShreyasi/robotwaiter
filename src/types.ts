@@ -6,6 +6,8 @@ export interface Pose {
   description?: string;
   x: string;
   y: string;
+  z: string,
+  w: string,
   yaw: string; // yaw (Z + W combined in your logic)
 }
 

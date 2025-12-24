@@ -163,7 +163,37 @@ export default function RobotControlScreen() {
     }
   };
 
-  const handleStartTalking = async () => {
+  const isSyntheticEvent = (val: any) =>
+    val && typeof val === 'object' && ('nativeEvent' in val || 'target' in val || 'type' in val);
+
+  const normalizeTableName = (val: any): string | null => {
+    if (val === undefined || val === null) return null;
+    if (typeof val === 'string' || typeof val === 'number') {
+      const trimmed = String(val).trim();
+      return trimmed || null;
+    }
+    if (typeof val === 'object') {
+      if ((val as any).table_number) return normalizeTableName((val as any).table_number);
+      if ((val as any).current_table) return normalizeTableName((val as any).current_table);
+      if ((val as any).name) return normalizeTableName((val as any).name);
+    }
+    return null;
+  };
+
+  const resolveCurrentTable = (override?: string | null | any) => {
+    const table = isSyntheticEvent(override) ? undefined : override;
+    // Always prioritize the current table from robot status
+    const robotTable = currentStatus?.data?.current_table || prevData?.data?.current_table;
+    return (
+      normalizeTableName(table) ||
+      normalizeTableName(robotTable) ||
+      normalizeTableName(paymentData?.table_number) ||
+      normalizeTableName(lastControlRef.current?.payment_data?.table_number) ||
+      'PDR1' // Fallback to default table if none found
+    );
+  };
+
+  const handleStartTalking = async (tableName?: string | null) => {
     try {
       resetSilenceFallbacks();
       setCart({});
@@ -173,7 +203,7 @@ export default function RobotControlScreen() {
       console.log('[Session] Started with ID:', session.session_id);
 
       setIsTalking(true);
-      await startSpeakingApi();
+      await startSpeakingApi(resolveCurrentTable(tableName));
 
       allowRecognition();
       await speak(session.response, session.control.language || DEFAULT_LANGUAGE);
@@ -184,7 +214,7 @@ export default function RobotControlScreen() {
     }
   };
 
-  const handleEndTalking = async () => {
+  const handleEndTalking = async (tableName?: string | null) => {
     try {
       setIsTalking(false);
       clearPaymentTimeout();
@@ -192,7 +222,7 @@ export default function RobotControlScreen() {
       sessionIdRef.current = null;
       resetSilenceFallbacks();
       stopRecognition();
-      await stopSpeakingApi();
+      await stopSpeakingApi(resolveCurrentTable(tableName));
       await speak(SESSION_END_MESSAGE, DEFAULT_LANGUAGE);
     } catch (err: any) {
       console.error('[ERROR] End talking error:', err.message);
@@ -205,7 +235,12 @@ export default function RobotControlScreen() {
     try {
       await paymentSuccessApi(payment_response, paymentData);
       if (lastControlRef.current && lastDishMappingRef.current && lastOrderMapRef.current) {
-        await saveOrderApi(lastControlRef.current, lastDishMappingRef.current, lastOrderMapRef.current);
+        await saveOrderApi(
+          lastControlRef.current,
+          lastDishMappingRef.current,
+          lastOrderMapRef.current,
+          resolveCurrentTable(paymentData?.table_number),
+        );
       }
       setIsTalking(false);
       setIsBillVisible(true);
@@ -216,7 +251,7 @@ export default function RobotControlScreen() {
       try {
         await speak(PAYMENT_SUCCESS_MESSAGE, DEFAULT_LANGUAGE);
       } catch (e) { }
-      await stopSpeakingApi();
+      await stopSpeakingApi(resolveCurrentTable());
       await goToDock();
     } catch (e: any) {
       console.error('[ERROR] Payment success API error:', e.message);
@@ -234,7 +269,11 @@ export default function RobotControlScreen() {
       const control = lastControlRef.current;
       const orderMap = lastOrderMapRef.current;
 
-      const { paymentData: newPaymentData, html: qrHtmlRes, billHtml } = await startPaymentApi(control, orderMap);
+      const { paymentData: newPaymentData, html: qrHtmlRes, billHtml } = await startPaymentApi(
+        control,
+        orderMap,
+        resolveCurrentTable(control?.payment_data?.table_number),
+      );
       setPaymentData(newPaymentData);
       const safeBillHtml =
         billHtml ||
@@ -332,7 +371,11 @@ export default function RobotControlScreen() {
             }
 
             // Start Payment
-            const { paymentData: newPaymentData, html: qrHtmlRes, billHtml } = await startPaymentApi(control, orderMap);
+            const { paymentData: newPaymentData, html: qrHtmlRes, billHtml } = await startPaymentApi(
+              control,
+              orderMap,
+              resolveCurrentTable(control?.payment_data?.table_number),
+            );
 
             setPaymentData(newPaymentData);
             const safeBillHtml = billHtml || newPaymentData?.bill_html || '<html><body style="background:#000;color:#fff;"><h2>Bill data unavailable</h2></body></html>';
@@ -347,7 +390,7 @@ export default function RobotControlScreen() {
                 await speak(PAYMENT_TIMEOUT_MESSAGE, (control as any).language || DEFAULT_LANGUAGE);
               } catch (e) { }
               closePayment();
-              await stopSpeakingApi();
+              await stopSpeakingApi(resolveCurrentTable());
               await goToDock();
               setIsTalking(false);
               stopRecognition();
@@ -383,7 +426,7 @@ export default function RobotControlScreen() {
         console.error('[STT] Error in STT cycle:', err.message);
         setIsTalking(false);
         stopRecognition();
-        await stopSpeakingApi();
+        await stopSpeakingApi(resolveCurrentTable());
         if (err.message.includes('network') || err.message.includes('timeout')) {
           setIpModalVisible(true);
         }
@@ -422,23 +465,30 @@ export default function RobotControlScreen() {
     const pollRobotStatus = async () => {
       if (!enteredIp) return;
       try {
-        const data: RobotStatus = await checkRobotStatus(enteredIp);
-        setCurrentStatus(data);
-
+        const res: RobotStatus = await checkRobotStatus(enteredIp);
+        const data = res.data;
+        // debugger;
+        if (data?.current_pose && Object.keys(data.current_pose).length > 0) {
+          setCurrentStatus(data);
+        }
         const isSameAsPrevious = JSON.stringify(data) === JSON.stringify(prevData);
+        // const conditionsMet =
+        //   data.movement_status !== 'moving' &&
+        //   data.navigation_status === 'succeeded' &&
+        //   data.current_table !== 'initial_pose' &&
+        //   data.current_table !== 'dock' &&
+        //   (data.target_distance === null || data.target_distance < 0.2) &&
+        //   data.waiting_at_table === true;
         const conditionsMet =
-          data.movement_status !== 'moving' &&
-          data.navigation_status === 'success' &&
+          data.status == 'serving' &&
+          (data.navigation_status === 'succeeded' || data.navigation_status === 'active') &&
           data.current_table !== 'initial_pose' &&
           data.current_table !== 'dock' &&
-          (data.target_distance === null || data.target_distance < 0.2) &&
-          data.waiting_at_table === true;
-
-        console.log('[Status Poll] Conditions met:', conditionsMet, 'Same as previous:', isSameAsPrevious, 'IsTalking:', isTalking);
-
+          data.current_table !== null;
+        // console.log('[Status Poll] Conditions met:', conditionsMet, 'Same as previous:', isSameAsPrevious, 'IsTalking:', isTalking);
         if (!isSameAsPrevious && conditionsMet && !isTalking && !showPayment) {
           console.log('[Status Poll] Starting talking...');
-          await handleStartTalking();
+          await handleStartTalking(data?.current_table);
         }
         setPrevData(data);
       } catch (err: any) {
@@ -541,7 +591,7 @@ export default function RobotControlScreen() {
           <View style={styles.buttonSection}>
             <TouchableOpacity
               style={[styles.button, isLandscape && styles.buttonLandscape, IS_TABLET && styles.buttonTablet]}
-              onPress={isTalking ? handleEndTalking : handleStartTalking}
+              onPress={() => (isTalking ? handleEndTalking() : handleStartTalking())}
             >
               <Text style={[styles.buttonText, isLandscape && styles.buttonTextLandscape, IS_TABLET && styles.buttonTextTablet]}>
                 {isTalking ? 'End Talking' : 'Start Talking'}
@@ -591,7 +641,7 @@ export default function RobotControlScreen() {
         </TouchableOpacity>
         <ScrollView contentContainerStyle={styles.contentWrapper} keyboardShouldPersistTaps="handled">
           {showPayment && (qrHtml || paymentData?.bill_html || paymentData?.upi_string) ? (
-            <View style={{ flex: 1, width: width * 1, maxWidth: '100%', alignSelf: 'center', borderRadius: 10,zIndex:999999, minHeight: 400, height: 400 }}>
+            <View style={{ flex: 1, width: width * 1, maxWidth: '100%', alignSelf: 'center', borderRadius: 10, zIndex: 999999, minHeight: 400, height: 400 }}>
               {/* <TouchableOpacity
                 onPress={closePayment}
                 style={{ alignSelf: 'flex-end', marginRight: 12, marginBottom: 8, padding: 8 }}
@@ -637,7 +687,7 @@ export default function RobotControlScreen() {
               resizeMode="contain"
             />
           )}
-{/* Cart Display */}
+          {/* Cart Display */}
           <View style={styles.middlePanel}>
             <CartDisplay
               cart={cart}
@@ -656,7 +706,7 @@ export default function RobotControlScreen() {
 
           {/* Status panels row above bottom area (horizontal) */}
           {currentStatus && (
-            <View style={{ width: '100%', alignSelf: 'center'}}>
+            <View style={{ width: '100%', alignSelf: 'center' }}>
               <View style={{ width: '90%', alignSelf: 'center', flexDirection: 'row', justifyContent: 'space-between' }}>
                 <View style={{ flex: 1, marginRight: 6 }}>
                   <RobotStatusPanel status={currentStatus} />
@@ -688,7 +738,7 @@ export default function RobotControlScreen() {
               source={require('../assets/the-robot-restaurant.jpeg')}
               style={[styles.icon, isLandscape && styles.iconLandscape, IS_TABLET && styles.iconTablet]}
               resizeMode="contain"
-            />      
+            />
             <Text style={[styles.experienceText, isLandscape && styles.experienceTextLandscape, IS_TABLET && styles.experienceTextTablet]}>
               Dining Experience
             </Text>

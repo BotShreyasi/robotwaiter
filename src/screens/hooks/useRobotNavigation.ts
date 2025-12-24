@@ -32,6 +32,8 @@ export const useRobotNavigation = () => {
       const payload = {
         x: parseFloat(pose.x),
         y: parseFloat(pose.y),
+        z: parseFloat(pose.z),
+        w: parseFloat(pose.w),
         yaw: parseFloat(pose.yaw),
       };
       await navigateToPoseApi(payload);

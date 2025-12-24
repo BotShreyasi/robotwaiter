@@ -16,7 +16,7 @@ export const useIPConnection = () => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 8000);
 
-      const response = await fetch(`http://${ipStr}:8081/api/robot/status`, {
+      const response = await fetch(`http://${ipStr}:8082/api/robot/status`, {
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
